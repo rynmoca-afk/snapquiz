@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SnapQuiz — can you beat me?</title>
+<meta name="description" content="A friend made a quiz from their notes. Play it in your browser — no app needed.">
+<meta property="og:title" content="SnapQuiz — 8-question challenge">
+<meta property="og:description" content="Play my quiz in your browser. No app, no sign-up.">
+<meta property="og:image" content="fox.png">
+<style>
+  /* The quiz lives after "#" in the link, so it never reaches this host. No cookies, no analytics, no requests. */
+  :root { --ink:#111827; --gray:#6B7280; --line:#E5E7EB; --bg:#F8F9FA; --blue:#1CB0F6; --blueLip:#1899D6;
+          --green:#58CC02; --greenLip:#46A302; --red:#FF4B4B; --redLip:#D93636; --orange:#FF8A00; --purple:#CE82FF; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--ink);
+    font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:440px; margin:0 auto; padding:calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); min-height:100vh; display:flex; flex-direction:column; }
+  .center { text-align:center; }
+  .fox { width:132px; height:132px; display:block; margin:8px auto 0; }
+  h1 { font-size:28px; line-height:1.15; margin:12px 0 6px; font-weight:800; }
+  p.sub { color:var(--gray); margin:0 0 20px; font-size:16px; }
+  .chip { display:inline-block; padding:6px 12px; border-radius:999px; background:#FFF3E0; color:var(--orange); font-weight:800; font-size:14px; }
+  .btn { display:block; width:100%; border:0; border-radius:16px; padding:16px; font:inherit; font-size:18px; font-weight:800;
+         color:#fff; background:var(--blue); box-shadow:0 4px 0 var(--blueLip); cursor:pointer; margin-top:12px; text-decoration:none; text-align:center; }
+  .btn:active { transform:translateY(3px); box-shadow:0 1px 0 var(--blueLip); }
+  .btn.ghost { background:#fff; color:var(--ink); box-shadow:0 4px 0 var(--line); border:2px solid var(--line); }
+  .btn.green { background:var(--green); box-shadow:0 4px 0 var(--greenLip); }
+  .btn.red { background:var(--red); box-shadow:0 4px 0 var(--redLip); }
+  .hud { display:flex; align-items:center; gap:12px; margin-bottom:18px; }
+  .bar { flex:1; height:16px; background:var(--line); border-radius:99px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--green); border-radius:99px; transition:width .3s; box-shadow: inset 0 4px 0 rgba(255,255,255,.35); }
+  .count { font-weight:800; color:var(--gray); font-size:14px; }
+  .q { font-size:21px; font-weight:800; line-height:1.4; margin:4px 0 18px; }
+  .blank { display:inline-block; min-width:72px; height:24px; vertical-align:-4px; border-radius:8px; background:#EEF2F6; border:1.5px solid #CBD5E1; }
+  .fill { display:inline-block; padding:0 8px; border-radius:8px; background:var(--green); color:#fff; box-shadow:0 2px 0 var(--greenLip); }
+  .choice { display:block; width:100%; text-align:left; font:inherit; font-size:17px; font-weight:700; padding:16px 18px; margin:0 0 10px;
+            background:#fff; color:var(--ink); border:2px solid var(--line); border-radius:14px; box-shadow:0 3px 0 var(--line); cursor:pointer; }
+  .choice.ok { background:var(--green); border-color:var(--green); color:#fff; box-shadow:0 3px 0 var(--greenLip); }
+  .choice.bad { background:var(--red); border-color:var(--red); color:#fff; box-shadow:0 3px 0 var(--redLip); }
+  .choice.dim { color:#9CA3AF; }
+  .drawer { margin-top:auto; padding:16px; border-radius:18px; }
+  .drawer.ok { background:#D7FFB8; color:#3A8700; } .drawer.bad { background:#FFDFE0; color:#C9302C; }
+  .drawer b { font-size:18px; }
+  .vs { display:flex; gap:12px; margin:18px 0 6px; }
+  .card { flex:1; background:#fff; border:2px solid var(--line); border-radius:18px; box-shadow:0 4px 0 var(--line); padding:14px 8px; text-align:center; }
+  .card .who { font-size:13px; font-weight:800; color:var(--gray); text-transform:uppercase; letter-spacing:.6px; }
+  .card .sc { font-size:34px; font-weight:900; }
+  .win { color:var(--green); } .lose { color:var(--orange); }
+  input { width:100%; font:inherit; font-size:17px; padding:14px 16px; border-radius:14px; border:2px solid var(--line); margin-top:8px; }
+  .fine { color:#9CA3AF; font-size:12px; text-align:center; margin-top:18px; }
+  .err { margin-top:40px; }
+</style>
+</head>
+<body>
+<main id="app"><p class="center sub">Loading…</p></main>
+<script>
+"use strict";
+const APP_URL = "https://apps.apple.com/app/id0000000000"; // replaced at release
+const $app = document.getElementById("app");
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function b64urlToBytes(s) {
+  s = s.replace(/-/g, "+").replace(/_/g, "/"); while (s.length % 4) s += "=";
+  return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+}
+function bytesToB64url(b) {
+  let s = ""; b.forEach(x => s += String.fromCharCode(x));
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function inflateRaw(bytes) {
+  const ds = new DecompressionStream("deflate-raw");
+  const out = new Response(new Blob([bytes]).stream().pipeThrough(ds));
+  return new TextDecoder().decode(await out.arrayBuffer());
+}
+function shuffle(a) { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+// Quiz link: #q=<base64url(raw deflate(JSON))>, JSON = {v:1, t:title, n:sender, s:score, c:count, q:[[stem, answer, w1, w2, w3], ...]}
+// Score-back link: #r=<base64url(JSON)>, JSON = {v:1, t:title, to:sender, n:friend, s:score, c:count}
+async function start() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  try {
+    if (h.get("q")) return intro(JSON.parse(await inflateRaw(b64urlToBytes(h.get("q")))));
+    if (h.get("r")) return scoreBack(JSON.parse(new TextDecoder().decode(b64urlToBytes(h.get("r")))));
+  } catch (e) { return broken(); }
+  home();
+}
+
+function home() {
+  $app.innerHTML = `<div class="center"><img class="fox" src="fox.png" alt=""><h1>SnapQuiz</h1>
+    <p class="sub">Snap your notes. Get a quiz.<br>Open a friend's quiz link to play it here.</p></div>
+    <a class="btn" href="${APP_URL}">Get SnapQuiz on the App Store</a>`;
+}
+function broken() {
+  $app.innerHTML = `<div class="center err"><img class="fox" src="fox.png" alt=""><h1>This link looks cut off</h1>
+    <p class="sub">Ask your friend to send the whole link again.</p></div><a class="btn" href="${APP_URL}">Make your own quiz</a>`;
+}
+
+function intro(quiz) {
+  if (!quiz || !Array.isArray(quiz.q) || !quiz.q.length) return broken();
+  const n = esc(quiz.n || "Your friend"), c = quiz.c || quiz.q.length;
+  $app.innerHTML = `<div class="center"><img class="fox" src="fox.png" alt="">
+    <span class="chip">${esc(quiz.t || "Quiz")} · ${quiz.q.length} questions</span>
+    <h1>${n} got ${quiz.s}/${c}.<br>Can you beat them?</h1>
+    <p class="sub">Play right here — no app, no sign-up.</p></div>
+    <button class="btn" id="go">Start the challenge</button>
+    <p class="fine">Made with SnapQuiz from ${n}'s own notes.</p>`;
+  document.getElementById("go").onclick = () => play(quiz, 0, 0);
+}
+
+function stemHTML(stem, reveal) {
+  const parts = String(stem).split("_____");
+  if (parts.length === 1) return esc(stem);
+  return parts.map(esc).join(reveal ? `<span class="fill">${esc(reveal)}</span>` : `<span class="blank"></span>`);
+}
+
+function play(quiz, i, right) {
+  const [stem, answer, ...wrong] = quiz.q[i];
+  const choices = shuffle([answer, ...wrong.slice(0, 3)]);
+  $app.innerHTML = `<div class="hud"><div class="bar"><i style="width:${Math.max(6, (i / quiz.q.length) * 100)}%"></i></div>
+      <span class="count">${i + 1}/${quiz.q.length}</span></div>
+    <div class="q" id="stem">${stemHTML(stem)}</div>
+    <div id="choices">${choices.map((c, k) => `<button class="choice" data-k="${k}">${esc(c)}</button>`).join("")}</div>
+    <div id="drawer"></div>`;
+  document.querySelectorAll(".choice").forEach(b => b.onclick = () => {
+    const picked = choices[+b.dataset.k], ok = picked === answer;
+    document.querySelectorAll(".choice").forEach(x => {
+      x.disabled = true; const v = choices[+x.dataset.k];
+      x.classList.add(v === answer ? "ok" : (x === b ? "bad" : "dim"));
+    });
+    document.getElementById("stem").innerHTML = stemHTML(stem, answer);
+    if (navigator.vibrate) navigator.vibrate(ok ? 20 : [30, 40, 30]);
+    const last = i + 1 === quiz.q.length;
+    document.getElementById("drawer").outerHTML = `<div class="drawer ${ok ? "ok" : "bad"}"><b>${ok ? "Correct!" : "Answer: " + esc(answer)}</b>
+      <button class="btn ${ok ? "green" : "red"}" id="next">${last ? "See result" : "Continue"}</button></div>`;
+    document.getElementById("next").onclick = () => last ? result(quiz, right + (ok ? 1 : 0)) : play(quiz, i + 1, right + (ok ? 1 : 0));
+  });
+}
+
+function result(quiz, mine) {
+  const total = quiz.q.length, theirs = quiz.s, n = quiz.n || "Your friend";
+  const won = mine > theirs, tie = mine === theirs;
+  const head = won ? "You beat " + esc(n) + "!" : tie ? "It's a tie!" : esc(n) + " wins this one";
+  $app.innerHTML = `<div class="center"><img class="fox" src="fox.png" alt=""><h1>${head}</h1></div>
+    <div class="vs"><div class="card"><div class="who">You</div><div class="sc ${won || tie ? "win" : "lose"}">${mine}/${total}</div></div>
+      <div class="card"><div class="who">${esc(n)}</div><div class="sc">${theirs}/${quiz.c || total}</div></div></div>
+    <input id="me" maxlength="20" placeholder="Your name (optional)" autocomplete="nickname">
+    <button class="btn" id="back">Send my score to ${esc(n)}</button>
+    <a class="btn ghost" href="${APP_URL}">Make a quiz from my notes</a>
+    <p class="fine">SnapQuiz turns a photo of any page into a quiz in seconds.</p>`;
+  document.getElementById("back").onclick = async () => {
+    const friend = document.getElementById("me").value.trim() || "Your friend";
+    const payload = { v: 1, t: quiz.t, to: n, n: friend, s: mine, c: total };
+    const url = location.origin + location.pathname + "#r=" + bytesToB64url(new TextEncoder().encode(JSON.stringify(payload)));
+    const text = `I got ${mine}/${total} on your "${quiz.t}" quiz!`;
+    if (navigator.share) { try { await navigator.share({ text, url }); } catch (e) {} }
+    else { try { await navigator.clipboard.writeText(text + " " + url); document.getElementById("back").textContent = "Link copied — paste it to " + n; } catch (e) { prompt("Copy this link", url); } }
+  };
+}
+
+function scoreBack(r) {
+  const won = r.s > 0 && r.s >= r.c;
+  $app.innerHTML = `<div class="center"><img class="fox" src="fox.png" alt="">
+    <span class="chip">${esc(r.t || "Your quiz")}</span>
+    <h1>${esc(r.n || "Your friend")} scored ${r.s}/${r.c}</h1>
+    <p class="sub">${won ? "A perfect round. Time for a harder page?" : "Send them another page to test them again."}</p></div>
+    <a class="btn" href="${APP_URL}">Open SnapQuiz</a>`;
+}
+
+if (!("DecompressionStream" in window)) { $app.innerHTML = `<p class="center sub err">Please update your browser to play this quiz.</p>`; }
+else { start(); window.addEventListener("hashchange", start); }
+</script>
+</body>
+</html>
